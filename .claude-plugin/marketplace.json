@@ -1,6 +1,8 @@
 {
   "name": "mypenny",
-  "owner": "HelperLabs",
+  "owner": {
+    "name": "HelperLabs"
+  },
   "plugins": [
     {
       "name": "mypenny-code-claude-code",
