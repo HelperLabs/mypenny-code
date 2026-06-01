@@ -1,0 +1,361 @@
+
+// plugins/mypenny-code-core/lib/hook-input.ts
+import * as readline from "node:readline";
+function readHookInputFrom(stream) {
+  return new Promise((resolve2) => {
+    let input = "";
+    const rl = readline.createInterface({ input: stream });
+    const timer = setTimeout(() => rl.close(), 500);
+    rl.on("line", (line) => {
+      input += line + "\n";
+    });
+    rl.on("close", () => {
+      clearTimeout(timer);
+      const trimmed = input.trim();
+      if (!trimmed) return resolve2(null);
+      try {
+        resolve2(JSON.parse(trimmed));
+      } catch {
+        resolve2(null);
+      }
+    });
+  });
+}
+function readHookInput() {
+  return readHookInputFrom(process.stdin);
+}
+var ALLOWED_KEYS = /* @__PURE__ */ new Set([
+  "session_id",
+  "cwd",
+  "prompt",
+  "transcript_path",
+  "stop_hook_active",
+  "tool_name"
+]);
+function normalizeHookInput(input) {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return null;
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (ALLOWED_KEYS.has(k)) out[k] = v;
+  }
+  return out;
+}
+
+// plugins/mypenny-code-core/lib/state.ts
+import * as fs from "node:fs";
+import * as path2 from "node:path";
+import * as crypto from "node:crypto";
+
+// plugins/mypenny-code-core/lib/paths.ts
+import * as os from "node:os";
+import * as path from "node:path";
+function mypennyDir() {
+  return process.env.MYPENNY_HOME || path.join(os.homedir(), ".mypenny");
+}
+function tokenPath() {
+  return path.join(mypennyDir(), "token");
+}
+function configPath() {
+  return path.join(mypennyDir(), "config.json");
+}
+function sessionsDir() {
+  return path.join(mypennyDir(), "sessions");
+}
+function sessionPath(sessionId) {
+  return path.join(sessionsDir(), `${sessionId}.json`);
+}
+
+// plugins/mypenny-code-core/lib/state.ts
+var STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1e3;
+var CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1e3;
+function ensureSessionsDir() {
+  fs.mkdirSync(sessionsDir(), { recursive: true });
+}
+function cleanupMarkerPath() {
+  return path2.join(mypennyDir(), "last_cleanup");
+}
+function readState(sessionId) {
+  try {
+    const data = fs.readFileSync(sessionPath(sessionId), "utf-8");
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+function writeState(state) {
+  ensureSessionsDir();
+  const target = sessionPath(state.sessionId);
+  const tmp = `${target}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+  fs.renameSync(tmp, target);
+}
+function createState(sessionId, projectPath) {
+  const state = {
+    sessionId,
+    projectPath,
+    startedAt: Date.now(),
+    lastSentLine: 0,
+    guidanceHash: null
+  };
+  writeState(state);
+  return state;
+}
+function cleanupStaleSessions() {
+  try {
+    let lastCleanup = 0;
+    try {
+      const data = fs.readFileSync(cleanupMarkerPath(), "utf-8");
+      lastCleanup = parseInt(data, 10);
+    } catch {
+    }
+    if (Date.now() - lastCleanup < CLEANUP_INTERVAL_MS) return;
+    fs.mkdirSync(path2.dirname(cleanupMarkerPath()), { recursive: true });
+    fs.writeFileSync(cleanupMarkerPath(), String(Date.now()));
+    if (!fs.existsSync(sessionsDir())) return;
+    const files = fs.readdirSync(sessionsDir());
+    const now = Date.now();
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      const filePath = path2.join(sessionsDir(), file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (now - stat.mtimeMs > STALE_THRESHOLD_MS) {
+          fs.unlinkSync(filePath);
+        }
+      } catch {
+      }
+    }
+  } catch {
+  }
+}
+
+// plugins/mypenny-code-core/lib/auth-store.ts
+import * as fs2 from "node:fs";
+function readToken() {
+  try {
+    return fs2.readFileSync(tokenPath(), "utf-8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+function readConfig() {
+  try {
+    const raw = fs2.readFileSync(configPath(), "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+// plugins/mypenny-code-core/lib/project-key.ts
+import * as fs3 from "node:fs";
+import * as path3 from "node:path";
+function deriveProjectKey(cwd) {
+  try {
+    const gitRoot = findGitRoot(cwd);
+    if (gitRoot) {
+      const configPath2 = resolveGitConfigPath(gitRoot);
+      if (configPath2 && fs3.existsSync(configPath2)) {
+        const remote = parseOriginRemote(fs3.readFileSync(configPath2, "utf-8"));
+        if (remote) return sanitizeKey(remote);
+      }
+      return sanitizeKey(path3.basename(gitRoot));
+    }
+  } catch {
+  }
+  return sanitizeKey(path3.basename(cwd));
+}
+function findGitRoot(start) {
+  let dir = start;
+  for (let i = 0; i < 32; i++) {
+    const gitPath = path3.join(dir, ".git");
+    if (fs3.existsSync(gitPath)) return dir;
+    const parent = path3.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+function resolveGitConfigPath(gitRoot) {
+  const gitPath = path3.join(gitRoot, ".git");
+  try {
+    const stat = fs3.statSync(gitPath);
+    if (stat.isDirectory()) {
+      return path3.join(gitPath, "config");
+    }
+    if (stat.isFile()) {
+      const contents = fs3.readFileSync(gitPath, "utf-8");
+      const match = contents.match(/^gitdir:\s*(.+)$/m);
+      if (!match) return null;
+      const gitdir = path3.resolve(gitRoot, match[1].trim());
+      const commondirPath = path3.join(gitdir, "commondir");
+      if (fs3.existsSync(commondirPath)) {
+        const commondir = path3.resolve(
+          gitdir,
+          fs3.readFileSync(commondirPath, "utf-8").trim()
+        );
+        return path3.join(commondir, "config");
+      }
+      return path3.join(gitdir, "config");
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+function parseOriginRemote(configText) {
+  const lines = configText.split("\n");
+  let inOrigin = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("[")) {
+      inOrigin = trimmed === '[remote "origin"]';
+      continue;
+    }
+    if (!inOrigin) continue;
+    const urlMatch = trimmed.match(/^url\s*=\s*(.+)$/);
+    if (urlMatch) return extractRepoName(urlMatch[1]);
+  }
+  return null;
+}
+function extractRepoName(url) {
+  const cleaned = url.trim().replace(/\.git$/, "");
+  const lastSegment = cleaned.split(/[/:]/).pop();
+  return lastSegment || null;
+}
+function sanitizeKey(raw) {
+  return raw.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "unknown";
+}
+
+// plugins/mypenny-code-core/lib/memory-client.ts
+var TIMEOUT_MS = 8e3;
+async function callTool(name, args) {
+  const token = readToken();
+  const cfg = readConfig();
+  if (!token || !cfg) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const response = await fetch(cfg.memoryUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { name, arguments: args },
+        id: Date.now()
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data.error) return null;
+    return data.result?.content?.find((c) => c.type === "text")?.text ?? null;
+  } catch {
+    return null;
+  }
+}
+async function getCoreMemoryBlocks(projectKey) {
+  const raw = await callTool("get_core_memory", { projectKey });
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    const blocks = [];
+    for (const b of parsed.global ?? []) {
+      blocks.push({ blockName: b.blockName, content: b.content || "" });
+    }
+    return blocks;
+  } catch {
+    return [];
+  }
+}
+async function getGuidanceForCwd(cwd) {
+  const projectKey = deriveProjectKey(cwd);
+  const blocks = await getCoreMemoryBlocks(projectKey);
+  return {
+    userFacts: blocks.find((b) => b.blockName === "user_facts")?.content ?? "",
+    subconscious: blocks.find((b) => b.blockName === `subconscious:${projectKey}`)?.content ?? "",
+    codingGuidance: blocks.find((b) => b.blockName === "coding_guidance")?.content ?? "",
+    projectKey
+  };
+}
+
+// plugins/mypenny-code-core/lib/format.ts
+function formatInjection(guidance, memories) {
+  const hasUser = guidance.userFacts.trim().length > 0;
+  const hasSub = guidance.subconscious.trim().length > 0;
+  const hasCoding = guidance.codingGuidance.trim().length > 0;
+  const hasMem = memories.length > 0;
+  if (!hasUser && !hasSub && !hasCoding && !hasMem) return "";
+  let out = "<mypenny_subconscious>\n";
+  if (hasUser) {
+    out += `  <user_facts>
+    ${guidance.userFacts.trim()}
+  </user_facts>
+`;
+  }
+  if (hasSub) {
+    out += `  <project_subconscious key="${guidance.projectKey}">
+    ${guidance.subconscious.trim()}
+  </project_subconscious>
+`;
+  }
+  if (hasCoding) {
+    out += `  <coding_guidance>
+    ${guidance.codingGuidance.trim()}
+  </coding_guidance>
+`;
+  }
+  if (hasMem) {
+    out += "  <relevant_memories>\n";
+    for (const m of memories) {
+      const score = m.score.toFixed(2);
+      const tags = m.tags.join(", ");
+      const content = m.content.length > 300 ? m.content.slice(0, 300) + "..." : m.content;
+      out += `    [${score}] ${content} (tags: ${tags})
+`;
+    }
+    out += "  </relevant_memories>\n";
+  }
+  out += "</mypenny_subconscious>";
+  return out;
+}
+
+// plugins/mypenny-code-core/scripts/session_start.ts
+var DEBUG = process.env.MYPENNY_DEBUG === "1";
+var debug = (...args) => {
+  if (DEBUG) console.error("[mypenny:session_start]", ...args);
+};
+async function main() {
+  if (process.env.MYPENNY_SUBCONSCIOUS === "off") return;
+  const raw = await readHookInput();
+  const hookInput = normalizeHookInput(raw);
+  if (!hookInput) return;
+  if (!readToken()) {
+    process.stderr.write(
+      "[mypenny] plugin not authenticated. Run: npx @mypenny/code-core auth login\n"
+    );
+    return;
+  }
+  debug("Session start:", hookInput.session_id, hookInput.cwd);
+  if (!readState(hookInput.session_id)) {
+    createState(hookInput.session_id, hookInput.cwd);
+  }
+  cleanupStaleSessions();
+  const guidance = await getGuidanceForCwd(hookInput.cwd);
+  debug(
+    `Guidance: project=${guidance.projectKey} user=${guidance.userFacts.length}b sub=${guidance.subconscious.length}b coding=${guidance.codingGuidance.length}b`
+  );
+  const output = formatInjection(guidance, []);
+  if (output) console.log(output);
+}
+main().catch((err) => {
+  if (DEBUG) console.error("[mypenny:session_start] error:", err);
+  process.exit(0);
+});

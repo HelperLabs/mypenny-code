@@ -1,0 +1,137 @@
+
+// plugins/mypenny-code-core/scripts/auth_login.ts
+import * as os2 from "node:os";
+import { spawn } from "node:child_process";
+
+// plugins/mypenny-code-core/lib/auth-store.ts
+import * as fs from "node:fs";
+import * as crypto from "node:crypto";
+
+// plugins/mypenny-code-core/lib/paths.ts
+import * as os from "node:os";
+import * as path from "node:path";
+function mypennyDir() {
+  return process.env.MYPENNY_HOME || path.join(os.homedir(), ".mypenny");
+}
+function tokenPath() {
+  return path.join(mypennyDir(), "token");
+}
+function configPath() {
+  return path.join(mypennyDir(), "config.json");
+}
+
+// plugins/mypenny-code-core/lib/auth-store.ts
+function ensureDir() {
+  fs.mkdirSync(mypennyDir(), { recursive: true });
+}
+function atomicWrite(target, contents, mode) {
+  ensureDir();
+  const tmp = `${target}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, contents, { mode });
+  fs.renameSync(tmp, target);
+  if (process.platform !== "win32") {
+    fs.chmodSync(target, mode);
+  }
+}
+function writeToken(token) {
+  atomicWrite(tokenPath(), token.trim(), 384);
+}
+function writeConfig(cfg) {
+  atomicWrite(configPath(), JSON.stringify(cfg, null, 2) + "\n", 420);
+}
+
+// plugins/mypenny-code-core/lib/device-flow.ts
+var defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function requestDeviceCode(baseUrl, clientName) {
+  const response = await fetch(`${baseUrl}/api/auth/device`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_name: clientName })
+  });
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = await response.json();
+      detail = body?.error ? `: ${body.error}` : "";
+    } catch {
+    }
+    throw new Error(`device-code request failed (HTTP ${response.status})${detail}`);
+  }
+  return await response.json();
+}
+async function pollForToken(baseUrl, deviceCode, intervalSec, expiresInSec, deps = {}) {
+  const sleep = deps.sleep ?? defaultSleep;
+  const deadline = Date.now() + expiresInSec * 1e3;
+  let currentInterval = intervalSec;
+  while (true) {
+    if (Date.now() > deadline) {
+      throw new Error("expired_token (deadline passed before user approved)");
+    }
+    await sleep(currentInterval * 1e3);
+    const response = await fetch(`${baseUrl}/api/auth/device/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_code: deviceCode })
+    });
+    let body = {};
+    try {
+      body = await response.json();
+    } catch {
+    }
+    if (response.ok && body?.access_token) {
+      return { access_token: body.access_token, userId: body.userId };
+    }
+    const errCode = body?.error ?? "unknown_error";
+    if (errCode === "authorization_pending") continue;
+    if (errCode === "slow_down") {
+      currentInterval = Math.max(1, currentInterval * 2);
+      continue;
+    }
+    if (errCode === "expired_token") {
+      throw new Error("expired_token (server-side)");
+    }
+    if (errCode === "access_denied") {
+      throw new Error("access_denied (user rejected the request)");
+    }
+    throw new Error(`device-flow poll failed: ${errCode}`);
+  }
+}
+
+// plugins/mypenny-code-core/scripts/auth_login.ts
+var BASE_URL = process.env.MYPENNY_BASE_URL ?? "https://engine.mypenny.ai";
+var CLIENT_NAME = process.env.MYPENNY_CLIENT_NAME ?? os2.hostname();
+function openBrowser(url) {
+  const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  try {
+    spawn(cmd, [url], { detached: true, stdio: "ignore" }).unref();
+  } catch {
+  }
+}
+async function main() {
+  process.stderr.write(`[mypenny] requesting device code from ${BASE_URL} ...
+`);
+  const dc = await requestDeviceCode(BASE_URL, CLIENT_NAME);
+  process.stderr.write(`
+  Visit: ${dc.verification_uri_complete}
+`);
+  process.stderr.write(`  If prompted, enter code: ${dc.user_code}
+
+`);
+  openBrowser(dc.verification_uri_complete);
+  const approved = await pollForToken(BASE_URL, dc.device_code, dc.interval, dc.expires_in);
+  writeToken(approved.access_token);
+  writeConfig({
+    memoryUrl: process.env.MYPENNY_MEMORY_URL ?? `${BASE_URL}/mcp`,
+    ingestUrl: process.env.MYPENNY_INGEST_URL ?? `${BASE_URL}/api/ingestTranscript`,
+    userId: approved.userId,
+    issuedAt: Date.now()
+  });
+  process.stderr.write(`[mypenny] authenticated as ${approved.userId}
+`);
+}
+main().catch((err) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`[mypenny] auth failed: ${msg}
+`);
+  process.exit(1);
+});

@@ -1,0 +1,11 @@
+{
+  "name": "mypenny",
+  "owner": "HelperLabs",
+  "plugins": [
+    {
+      "name": "mypenny-code-claude-code",
+      "source": "./claude-code",
+      "description": "MyPenny memory for Claude Code"
+    }
+  ]
+}
