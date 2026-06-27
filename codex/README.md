@@ -1,11 +1,11 @@
 # @mypenny/code-codex
 
-Codex plugin shell for MyPenny memory. Hook config only — behavior lives
-in `@mypenny/code-core`. Codex's plugin shape (hooks.json schema,
-`PLUGIN_ROOT` env var) deliberately matches Claude Code's, so the script
-references are identical aside from the manifest format.
+Codex plugin shell for MyPenny memory. It installs the MyPenny MCP server
+definition and lifecycle hooks; hook behavior lives in `@mypenny/code-core`.
+Codex exposes the installed plugin directory through `CODEX_PLUGIN_ROOT`.
 
 ## Install (once published)
 ```
 codex plugin marketplace add HelperLabs/mypenny-code
+codex plugin install mypenny-code-codex
 ```

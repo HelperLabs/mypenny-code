@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/session_start.mjs\"",
+            "command": "node \"${CODEX_PLUGIN_ROOT}/scripts/session_start.mjs\"",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/sync_memory.mjs\"",
+            "command": "node \"${CODEX_PLUGIN_ROOT}/scripts/sync_memory.mjs\"",
             "timeout": 10
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/pretool_sync.mjs\"",
+            "command": "node \"${CODEX_PLUGIN_ROOT}/scripts/pretool_sync.mjs\"",
             "timeout": 5
           }
         ]
@@ -42,9 +42,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/send_transcript.mjs\"",
-            "timeout": 120,
-            "async": true
+            "command": "node \"${CODEX_PLUGIN_ROOT}/scripts/send_transcript.mjs\"",
+            "timeout": 120
           }
         ]
       }
