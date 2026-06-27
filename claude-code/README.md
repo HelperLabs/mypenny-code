@@ -1,12 +1,24 @@
 # @mypenny/code-claude-code
 
-Claude Code plugin shell for MyPenny memory. Hook config files only —
-all behavior lives in `@mypenny/code-core`.
+Claude Code plugin shell for MyPenny memory. It bundles the Penny skill plus
+hook config files; hook behavior lives in `@mypenny/code-core`.
 
 ## Install (once published)
 ```
 /plugin install mypenny-code-claude-code@mypenny
 ```
+
+## Upgrade
+
+Refresh the `mypenny` marketplace/source, then reinstall
+`mypenny-code-claude-code` from the plugin browser or rerun:
+
+```
+/plugin install mypenny-code-claude-code@mypenny
+```
+
+After upgrading, restart Claude Code or open a fresh session so the bundled
+Penny skill and hooks reload.
 
 ## First-launch
 On first SessionStart the plugin prints an auth hint to stderr with the exact
