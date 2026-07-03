@@ -274,7 +274,10 @@ async function callTool(name, args) {
   }
 }
 async function getCoreMemoryBlocks(projectKey) {
-  const raw = await callTool("penny_get_profile", { projectKey });
+  const raw = await callTool("penny_get_profile", {
+    projectKey,
+    blockNames: ["user_facts", "coding_guidance", `subconscious:${projectKey}`]
+  });
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
