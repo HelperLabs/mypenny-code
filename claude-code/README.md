@@ -4,8 +4,11 @@ Claude Code plugin shell for MyPenny memory. It bundles the MyPenny MCP
 server definition, the MyPenny skill, and hook config files; hook behavior
 lives in `@mypenny/code-core`.
 
-The bundled MCP server points at `https://app.mypenny.ai/mcp` (override with
-the `MYPENNY_MCP_URL` environment variable). On first use Claude Code runs the
+The bundled MCP server points at `https://app.mypenny.ai/mcp` — a literal
+URL, because surfaces like the Claude desktop app pass the config through
+without shell-style env expansion (a `${VAR:-default}` template reaches the
+connector dialog verbatim and fails URL validation). To point a dev install
+at another engine, add a manual MCP server instead. On first use the host runs the
 server's OAuth flow — approve it via `/mcp` in an interactive session. This is
 separate from the hook auth below: the hooks and the MCP server authenticate
 independently.
