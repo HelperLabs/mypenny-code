@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "mypenny": {
+    "MyPenny": {
       "type": "http",
       "url": "${MYPENNY_MCP_URL:-https://app.mypenny.ai/mcp}"
     }

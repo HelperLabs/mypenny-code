@@ -1,7 +1,7 @@
 # @mypenny/code-codex
 
 Codex plugin shell for MyPenny memory. It installs the MyPenny MCP server
-definition, Penny skill, and lifecycle hooks; hook behavior lives in
+definition, MyPenny skill, and lifecycle hooks; hook behavior lives in
 `@mypenny/code-core`.
 Codex exposes the installed plugin directory through `CODEX_PLUGIN_ROOT`.
 
@@ -13,7 +13,7 @@ provide the same behavior guarantees.
 - ChatGPT App V1 uses MCP instructions, tool descriptions, listing copy, and
   the ChatGPT Memory Setup widget.
 - Codex uses this plugin for a stronger lane: bundled MCP configuration, the
-  Penny skill, and lifecycle hooks.
+  MyPenny skill, and lifecycle hooks.
 - Installing the ChatGPT App does not automatically make this Codex plugin
   active, and installing this Codex plugin does not automatically install the
   ChatGPT App.

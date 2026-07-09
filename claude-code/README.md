@@ -1,7 +1,7 @@
 # @mypenny/code-claude-code
 
 Claude Code plugin shell for MyPenny memory. It bundles the MyPenny MCP
-server definition, the Penny skill, and hook config files; hook behavior
+server definition, the MyPenny skill, and hook config files; hook behavior
 lives in `@mypenny/code-core`.
 
 The bundled MCP server points at `https://app.mypenny.ai/mcp` (override with
@@ -25,7 +25,7 @@ Refresh the `mypenny` marketplace/source, then reinstall
 ```
 
 After upgrading, restart Claude Code or open a fresh session so the bundled
-Penny skill and hooks reload.
+MyPenny skill and hooks reload.
 
 ## First-launch
 On first SessionStart the plugin prints an auth hint to stderr with the exact

@@ -1,5 +1,5 @@
 ---
-name: penny
+name: MyPenny
 description: >-
   You are this user's personal assistant, and Penny is the set of tools that
   lets you do the job well — knowing them better each session and becoming the
