@@ -208,35 +208,14 @@ function sanitizeKey(raw) {
   return raw.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "unknown";
 }
 
-// plugins/mypenny-code-core/lib/workspace.ts
-var CONVEX_ID_RE = /^[A-Za-z0-9:_-]{8,128}$/;
-function isLikelyConvexId(value) {
-  return CONVEX_ID_RE.test(value);
-}
+// plugins/mypenny-code-core/lib/memory-client.ts
+var TIMEOUT_MS = 8e3;
 function debugEnabled() {
   const value = process.env.MYPENNY_DEBUG?.trim().toLowerCase();
   return value === "1" || value === "true" || value === "yes";
 }
-function configuredWorkspaceId() {
-  const workspaceId = process.env.MYPENNY_WORKSPACE_ID?.trim();
-  if (!workspaceId) return void 0;
-  if (isLikelyConvexId(workspaceId)) return workspaceId;
-  if (debugEnabled()) {
-    console.error(
-      "[mypenny] ignoring malformed MYPENNY_WORKSPACE_ID; expected a Convex sharedWorkspaces id"
-    );
-  }
-  return void 0;
-}
 function debugLog(message) {
   if (debugEnabled()) console.error(message);
-}
-
-// plugins/mypenny-code-core/lib/memory-client.ts
-var TIMEOUT_MS = 8e3;
-function withConfiguredWorkspace(args) {
-  const workspaceId = configuredWorkspaceId();
-  return workspaceId ? { ...args, workspaceId } : args;
 }
 async function callTool(name, args) {
   const token = readToken();
@@ -254,7 +233,7 @@ async function callTool(name, args) {
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "tools/call",
-        params: { name, arguments: withConfiguredWorkspace(args) },
+        params: { name, arguments: args },
         id: Date.now()
       }),
       signal: controller.signal
@@ -285,11 +264,18 @@ async function getCoreMemoryBlocks(projectKey) {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    const blocks = [];
-    for (const b of parsed.global ?? []) {
-      blocks.push({ blockName: b.blockName, content: b.content || "" });
+    const byName = /* @__PURE__ */ new Map();
+    for (const group of [parsed.global, parsed.workspace]) {
+      if (!Array.isArray(group)) continue;
+      for (const b of group) {
+        if (typeof b?.blockName !== "string") continue;
+        byName.set(b.blockName, {
+          blockName: b.blockName,
+          content: b.content || ""
+        });
+      }
     }
-    return blocks;
+    return [...byName.values()];
   } catch {
     return [];
   }

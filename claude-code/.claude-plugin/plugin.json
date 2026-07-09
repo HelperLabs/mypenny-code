@@ -1,9 +1,10 @@
 {
   "name": "mypenny-code-claude-code",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "MyPenny memory injection — your memory follows you into Claude Code.",
   "author": {
     "name": "HelperLabs"
   },
-  "homepage": "https://app.mypenny.ai"
+  "homepage": "https://app.mypenny.ai",
+  "mcpServers": "./.mcp.json"
 }

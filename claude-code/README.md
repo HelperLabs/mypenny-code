@@ -1,7 +1,14 @@
 # @mypenny/code-claude-code
 
-Claude Code plugin shell for MyPenny memory. It bundles the Penny skill plus
-hook config files; hook behavior lives in `@mypenny/code-core`.
+Claude Code plugin shell for MyPenny memory. It bundles the MyPenny MCP
+server definition, the Penny skill, and hook config files; hook behavior
+lives in `@mypenny/code-core`.
+
+The bundled MCP server points at `https://app.mypenny.ai/mcp` (override with
+the `MYPENNY_MCP_URL` environment variable). On first use Claude Code runs the
+server's OAuth flow — approve it via `/mcp` in an interactive session. This is
+separate from the hook auth below: the hooks and the MCP server authenticate
+independently.
 
 ## Install (once published)
 ```
@@ -27,14 +34,14 @@ resolved path to the bundled login script, e.g.:
 
 Run that command, sign in, approve in your browser, and re-open the session.
 
-## Shared Workspace Scope
+## SharedSpace Scope
 
 The per-project subconscious block does not need configuration; Claude Code
 passes the current working directory and MyPenny derives
-`subconscious:<projectKey>` from the repo. If you also want this plugin to
-read/write a MyPenny shared workspace, set `MYPENNY_WORKSPACE_ID` to the actual
-shared workspace id granted to your plugin token. Do not set it to a local path,
-repo name, or Claude project directory.
+`subconscious:<projectKey>` from the repo.
 
-Set `MYPENNY_DEBUG=1` to log ignored malformed workspace ids or failed shared
-workspace calls.
+Do not set local SharedSpace or workspace id environment variables in Claude
+Code. SharedSpace routing is server-side only: Peter or Aaron enables the
+hidden mode on the Convex deployment and manually marks selected plugin-token
+grants as server defaults. Unselected tokens stay private. Orgs are inferred
+from the selected SharedSpace row on the server.

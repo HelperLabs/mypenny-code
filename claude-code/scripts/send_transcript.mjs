@@ -170,39 +170,21 @@ function readEnvConfig() {
   };
 }
 
-// plugins/mypenny-code-core/lib/workspace.ts
-var CONVEX_ID_RE = /^[A-Za-z0-9:_-]{8,128}$/;
-function isLikelyConvexId(value) {
-  return CONVEX_ID_RE.test(value);
-}
+// plugins/mypenny-code-core/lib/transcript-client.ts
+var TIMEOUT_MS = 3e4;
 function debugEnabled() {
   const value = process.env.MYPENNY_DEBUG?.trim().toLowerCase();
   return value === "1" || value === "true" || value === "yes";
 }
-function configuredWorkspaceId() {
-  const workspaceId = process.env.MYPENNY_WORKSPACE_ID?.trim();
-  if (!workspaceId) return void 0;
-  if (isLikelyConvexId(workspaceId)) return workspaceId;
-  if (debugEnabled()) {
-    console.error(
-      "[mypenny] ignoring malformed MYPENNY_WORKSPACE_ID; expected a Convex sharedWorkspaces id"
-    );
-  }
-  return void 0;
-}
 function debugLog(message) {
   if (debugEnabled()) console.error(message);
 }
-
-// plugins/mypenny-code-core/lib/transcript-client.ts
-var TIMEOUT_MS = 3e4;
 async function sendTranscript(sessionId, projectKey, messages) {
   if (messages.length === 0) return true;
   const token = readToken();
   const cfg = readConfig();
   if (!token || !cfg) return false;
   try {
-    const workspaceId = configuredWorkspaceId();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     const response = await fetch(cfg.ingestUrl, {
@@ -214,8 +196,7 @@ async function sendTranscript(sessionId, projectKey, messages) {
       body: JSON.stringify({
         sessionId,
         projectKey,
-        messages,
-        ...workspaceId ? { workspaceId } : {}
+        messages
       }),
       signal: controller.signal
     });
