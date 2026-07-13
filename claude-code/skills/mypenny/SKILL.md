@@ -409,7 +409,19 @@ guessing.
 Names and jobs only — the body sections above and each tool's own description
 carry the how and when.
 
-If a tool call ever fails with `Unknown tool`, the live catalog is newer than
-this skill: trust the server's current tool list and the guidance
-`penny_session_start` returns over this document, and suggest the user update
-the MyPenny plugin (or remove and re-add the MyPenny connector) to refresh it.
+### Staleness — when this skill is behind the server
+
+This skill targets MyPenny MCP catalog 0.2.0. Two signals mean the live server
+has moved ahead of it:
+
+- **At session start**, `penny_session_start` returns the live
+  `meta.catalogVersion`. If it's higher than the version this skill targets
+  (above), this document is out of date.
+- **A tool call fails with `Unknown tool`** — the live catalog no longer has a
+  name this skill used.
+
+On either signal, trust the server's current tool list and the guidance
+`penny_session_start` returns over this document, and tell the user they can
+update the MyPenny plugin (or remove and re-add the MyPenny connector) to
+refresh it. A plugin-update notice injected at session start says the same
+about the plugin as a whole — relay it to the user.

@@ -66,6 +66,9 @@ function sessionsDir() {
 function sessionPath(sessionId) {
   return path.join(sessionsDir(), `${sessionId}.json`);
 }
+function versionCheckPath() {
+  return path.join(mypennyDir(), "version-check.json");
+}
 
 // plugins/mypenny-core/lib/state.ts
 var STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1e3;
@@ -380,9 +383,154 @@ function formatInjection(guidance, memories) {
   return out;
 }
 
-// plugins/mypenny-core/scripts/session_start.ts
-import { fileURLToPath } from "node:url";
+// plugins/mypenny-core/lib/version-check.ts
+import * as fs4 from "node:fs";
 import * as path4 from "node:path";
+import { fileURLToPath } from "node:url";
+var DAY_MS = 24 * 60 * 60 * 1e3;
+var REGISTRY = "https://registry.npmjs.org";
+var PLUGIN_ROOT_ENV_VARS = ["CLAUDE_PLUGIN_ROOT", "CODEX_PLUGIN_ROOT", "PLUGIN_ROOT"];
+var MANIFEST_SUBPATHS = [
+  [".claude-plugin", "plugin.json"],
+  [".codex-plugin", "plugin.json"]
+];
+function parseSemverCore(v) {
+  if (typeof v !== "string") return null;
+  const core = v.trim().replace(/^v/i, "").split(/[-+]/)[0];
+  const parts = core.split(".");
+  if (parts[0] === void 0 || parts[0] === "") return null;
+  const out = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    const raw = parts[i] ?? "0";
+    if (!/^\d+$/.test(raw)) return null;
+    out[i] = Number(raw);
+  }
+  return out;
+}
+function compareSemver(a, b) {
+  const pa = parseSemverCore(a);
+  const pb = parseSemverCore(b);
+  if (!pa || !pb) return null;
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] > pb[i]) return 1;
+    if (pa[i] < pb[i]) return -1;
+  }
+  return 0;
+}
+function pluginNpmName(pluginName) {
+  const m = /^mypenny-([a-z0-9-]+)$/.exec(pluginName);
+  return m ? `@mypenny/${m[1]}` : null;
+}
+function readManifest(root) {
+  for (const sub of MANIFEST_SUBPATHS) {
+    try {
+      const raw = fs4.readFileSync(path4.join(root, ...sub), "utf8");
+      const json = JSON.parse(raw);
+      if (typeof json.name !== "string" || typeof json.version !== "string") continue;
+      const npmName = pluginNpmName(json.name);
+      if (npmName) return { name: json.name, version: json.version, npmName };
+    } catch {
+    }
+  }
+  return null;
+}
+function resolveInstalledPlugin(fromDir) {
+  const candidates = [];
+  for (const envVar of PLUGIN_ROOT_ENV_VARS) {
+    const root = process.env[envVar];
+    if (root) candidates.push(root);
+  }
+  let dir = fromDir ?? path4.dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
+    candidates.push(dir);
+    const parent = path4.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  for (const root of candidates) {
+    const hit = readManifest(root);
+    if (hit) return hit;
+  }
+  return null;
+}
+async function fetchLatestVersion(npmName, fetchImpl, timeoutMs) {
+  try {
+    const res = await fetchImpl(`${REGISTRY}/${npmName}`, {
+      headers: { accept: "application/vnd.npm.install-v1+json" },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const latest = body["dist-tags"]?.latest ?? body.version;
+    return typeof latest === "string" && latest.length > 0 ? latest : null;
+  } catch {
+    return null;
+  }
+}
+function readCache() {
+  try {
+    const parsed = JSON.parse(fs4.readFileSync(versionCheckPath(), "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function writeCache(cache) {
+  try {
+    fs4.mkdirSync(path4.dirname(versionCheckPath()), { recursive: true });
+    fs4.writeFileSync(versionCheckPath(), JSON.stringify(cache), { mode: 384 });
+  } catch {
+  }
+}
+async function checkPluginFreshness(opts = {}) {
+  if (process.env.MYPENNY_VERSION_CHECK === "off") return null;
+  const installed = opts.installed !== void 0 ? opts.installed : resolveInstalledPlugin();
+  if (!installed) return null;
+  const now = opts.now ?? Date.now();
+  const ttlMs = opts.ttlMs ?? DAY_MS;
+  const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+  if (typeof fetchImpl !== "function") return null;
+  const cache = readCache();
+  const entry = cache[installed.npmName] ?? {};
+  let mutated = false;
+  const cacheFresh = typeof entry.checkedAt === "number" && now - entry.checkedAt < ttlMs;
+  if (!cacheFresh) {
+    const fetched = await fetchLatestVersion(
+      installed.npmName,
+      fetchImpl,
+      opts.fetchTimeoutMs ?? 1500
+    );
+    if (fetched) entry.latestVersion = fetched;
+    entry.checkedAt = now;
+    mutated = true;
+  }
+  const latest = entry.latestVersion ?? null;
+  const cmp = latest === null ? null : compareSemver(installed.version, latest);
+  if (latest === null || cmp === null || cmp >= 0) {
+    if (mutated) {
+      cache[installed.npmName] = entry;
+      writeCache(cache);
+    }
+    return null;
+  }
+  const alreadyNotified = entry.lastNotifiedVersion === latest && typeof entry.lastNotifiedAt === "number" && now - entry.lastNotifiedAt < ttlMs;
+  if (alreadyNotified) {
+    if (mutated) {
+      cache[installed.npmName] = entry;
+      writeCache(cache);
+    }
+    return null;
+  }
+  entry.lastNotifiedVersion = latest;
+  entry.lastNotifiedAt = now;
+  cache[installed.npmName] = entry;
+  writeCache(cache);
+  return `MyPenny plugin update available: installed ${installed.version}, latest ${latest}. Updating refreshes the memory skill and MCP tool catalog. Let the user know they can update the MyPenny plugin via their plugin marketplace (or reinstall ${installed.npmName}).`;
+}
+
+// plugins/mypenny-core/scripts/session_start.ts
+import { fileURLToPath as fileURLToPath2 } from "node:url";
+import * as path5 from "node:path";
 var DEBUG = process.env.MYPENNY_DEBUG === "1";
 var debug = (...args) => {
   if (DEBUG) console.error("[mypenny:session_start]", ...args);
@@ -393,7 +541,7 @@ async function main() {
   const hookInput = normalizeHookInput(raw);
   if (!hookInput) return;
   if (!readToken()) {
-    const authScript = path4.join(path4.dirname(fileURLToPath(import.meta.url)), "auth_login.mjs");
+    const authScript = path5.join(path5.dirname(fileURLToPath2(import.meta.url)), "auth_login.mjs");
     process.stderr.write(
       `[mypenny] plugin not authenticated. Run: node "${authScript}"
 `
@@ -413,6 +561,16 @@ async function main() {
   if (output) console.log(output);
   const state = readState(hookInput.session_id);
   if (state) writeState(withGuidanceHash(state, guidance));
+  try {
+    const updateNotice = await checkPluginFreshness();
+    if (updateNotice) {
+      console.log(`<mypenny_update_notice>
+${updateNotice}
+</mypenny_update_notice>`);
+    }
+  } catch (err) {
+    debug("version check failed:", err);
+  }
 }
 main().catch((err) => {
   if (DEBUG) console.error("[mypenny:session_start] error:", err);
