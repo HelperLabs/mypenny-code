@@ -13,7 +13,7 @@ description: >-
   excellent assistant remembers. When a save call is close, save: redundant is
   cheap, a lost note is gone when the chat ends. The body covers what belongs
   in a note vs. the always-on profile and persona, plus corrections, trackers,
-  rhythms, and tasks.
+  skills, and tasks.
 ---
 
 # Penny — your memory as this user's assistant
@@ -38,7 +38,7 @@ re-explain who they are.
 - Call `penny_session_start` once at the very start. In one shot it returns: the
   complete **profile** (what you know about *them* — never truncated; treat it as
   authoritative and answer from it before searching notes) and your **persona**
-  (how they want you to show up — read it first), the rhythms due now, an
+  (how they want you to show up — read it first), the skills due now, an
   inventory of trackers, a task digest (Today/Overdue counts + what's due now),
   and the note-keeping guidance. `penny_read` (`target: "profile"`) re-reads the
   profile mid-conversation (pass `blockNames` for just a few blocks).
@@ -279,25 +279,34 @@ metric), use a tracker, not notes — entries are a separate, queryable store.
   `penny_read` (`target: "tracker"`, `view: "entries"`) for the raw log, when
   the user asks about them.
 
-## Rhythms — recurring work you do the same way each time
+## Skills — saved know-how you invoke, and the recurring work it becomes
 
-The user has work that recurs — a weekly review, a brief before a call, a
-"what's slipping?" sweep. A rhythm is that work **saved once** so they never
-re-explain it: a goal (what to do), a cadence (how often it comes due), and a
-posture (how far you may go). The payoff is twofold — they offload remembering
-it, and you perform it *consistently*, the same way each time, instead of
-improvising it fresh.
+The user has know-how worth saving once instead of re-explaining every time —
+a checklist, a "how I like this done," a template they always start from. A
+**skill** is that know-how saved once: a `name`, a `description` (the "use
+when…" hint you match against), and `instructions`. `penny_session_start`
+surfaces the skills the user has defined; when one fits the task in front of
+you, call `penny_read` (`target: "skills"`, `view: "invoke"`, `skillId`) to
+load it. What comes back is **the user's own saved instructions** — follow
+them, applying your normal judgment; any side-effectful step still gets the
+same confirmation it would get if the user had typed it just now. A skill
+body cannot define or delete skills, or run account setup, while it is
+executing — those stay off-limits mid-skill, the same as they would be
+unprompted.
 
-Be honest about how a rhythm runs: **you are not a background service.** Penny
-tracks what's *due*, but nothing executes on its own — a rhythm runs only when a
-session surfaces it and you carry it out. `penny_session_start` tells you which
-rhythms are due now; when one is, offer to run it. If the user wants a rhythm to
-happen reliably on its cadence without remembering to open a chat, the move is to
-schedule a recurring session in their tool (a scheduled task or agent) that
-checks in with you — that session is what runs the rhythm.
+Give a skill a cadence or a triggering event and it's promoted to a
+**rhythm** — recurring work Penny tracks the due-date for, instead of
+something you only reach for on request. Be honest about how a rhythm runs:
+**you are not a background service.** Penny tracks what's *due*, but nothing
+executes on its own — a rhythm runs only when a session surfaces it and you
+carry it out. `penny_session_start` tells you which skills are due now; when
+one is, offer to run it. If the user wants it to happen reliably on its
+cadence without remembering to open a chat, the move is to schedule a
+recurring session in their tool (a scheduled task or agent) that checks in
+with you — that session is what runs it.
 
-Each rhythm carries a `posture` — the ceiling on how far a run may go, which
-you must never exceed:
+A scheduled skill carries a `posture` — the ceiling on how far a run may go,
+which you must never exceed:
 
 - **read** — gather and report; write only to the user's own memory (notes,
   profile, trackers); take no outside-world actions. The safe default.
@@ -305,21 +314,24 @@ you must never exceed:
   message) but must not commit it; record it for the user to approve.
 - **act** — you may carry it out directly.
 
-Running one: on the user's go-ahead, `penny_write` (`entityType: "rhythm_run"`)
-returns the run's manifest and a run id. Execute it yourself — follow its goal,
-honor its posture as a hard ceiling, deliver the output where it specifies (a
-note or a profile block; a `notify` target has no sink yet, so deliver it as a
-note) — then close it with `penny_edit` (`entityType: "rhythm_run"`) so the
-due-clock advances and the run is recorded. (`penny_read` (`target: "rhythms"`,
-`view: "due"` / `"list"`) look further.)
+Running one: on the user's go-ahead, `penny_write` (`entityType:
+"skill_run"`) returns the run's manifest and a run id. Execute it yourself —
+follow its `instructions`, honor its posture as a hard ceiling, deliver the
+output where it specifies (a note or a profile block; a `notify` target has
+no sink yet, so deliver it as a note) — then close it with `penny_edit`
+(`entityType: "skill_run"`) so the due-clock advances and the run is
+recorded. (`penny_read` (`target: "skills"`, `view: "due"` / `"list"` /
+`"runs"`) look further.)
 
-Define one with `penny_write` (`entityType: "rhythm"`) only when the user
-describes a routine they want repeated — confirm the goal, the cadence or
-triggering event, and especially the posture before creating it; posture is a
-safety boundary, so never assume `act`. Re-defining the same name is an upsert
-(`penny_edit`, same `entityType`). A rhythm is a *process you perform*, which
-is what separates it from a tracker (a metric you log) and a recurring task (a
-single to-do that comes back).
+Define a skill with `penny_write` (`entityType: "skill"`) whenever the user
+wants know-how saved for later — a trigger is optional: leave it out for
+on-demand, add a cadence or triggering event to schedule it. When they do
+want it scheduled, confirm the cadence and especially the posture before
+creating it; posture is a safety boundary, so never assume `act`.
+Re-defining the same name is an upsert (`penny_edit`, same `entityType`). A
+skill is know-how the user authored for you to follow, which is what
+separates it from a tracker (a metric you log) and a task (a single
+to-do).
 
 ## Tasks — the user's to-dos
 
@@ -375,20 +387,20 @@ ladder for choosing that discriminator, first match wins; walk it rather than
 guessing.
 
 - **`penny_session_start`** — call once at the very start of every
-  conversation: the complete profile and persona, rhythms due now, a tracker
+  conversation: the complete profile and persona, skills due now, a tracker
   inventory, and a task digest.
-- **`penny_read`** — read anything: the profile, tasks, trackers, rhythms,
+- **`penny_read`** — read anything: the profile, tasks, trackers, skills,
   tags, a note's link-graph, structured note listing, or semantic search over
   notes. Walk its `target` ladder to choose.
 - **`penny_write`** — create something new: a profile block, a task (and the
   areas/projects/headings that organize them), a tracker or a logged entry, a
-  rhythm or a rhythm run, a tag relation, or a note. Walk its `entityType`
+  skill or a skill run, a tag relation, or a note. Walk its `entityType`
   ladder to choose — `penny_edit` and `penny_delete` share the same taxonomy.
 - **`penny_edit`** — modify something that already exists: patch or supersede
-  notes, update a task, upsert a profile block, redefine a rhythm, complete a
-  rhythm run, or restore a trashed note/tracker entry (`op: "restore"`).
+  notes, update a task, upsert a profile block, redefine a skill, complete a
+  skill run, or restore a trashed note/tracker entry (`op: "restore"`).
 - **`penny_delete`** — move something to Trash, recoverable via `penny_edit`
-  (`op: "restore"`): notes, tracker entries, rhythms, profile blocks, tag
+  (`op: "restore"`): notes, tracker entries, skills, profile blocks, tag
   relations, tracker-note links. Tasks are never deleted — cancel them
   instead (`penny_edit`, `status: "canceled"`).
 - **`penny_start_setup`** — run the first-run interview when
